@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>북원노인종합복지관 후원업체 지도</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; font-family: 'Malgun Gothic', sans-serif; }
+  #wrap { position: relative; width: 100%; height: 100vh; }
+  #map { width: 100%; height: 100%; }
+  
+  #panel {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    background: #fff; padding: 10px 14px; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: 13px;
+  }
+  #panel strong { color: #d4a017; font-size: 14px; }
+  #search {
+    position: absolute; top: 12px; right: 12px; z-index: 10;
+    width: 220px; padding: 8px 12px; border: 1px solid #ddd;
+    border-radius: 6px; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  
+  .info-window {
+    padding: 12px 14px; min-width: 220px; max-width: 280px;
+    font-size: 13px; line-height: 1.6;
+  }
+  .info-window .name { font-weight: bold; font-size: 15px; color: #333; margin-bottom: 6px; }
+  .info-window .category {
+    display: inline-block; background: #fff4d6; color: #b8860b;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-bottom: 8px;
+  }
+  .info-window .row { color: #555; margin-top: 4px; }
+  .info-window .row b { color: #888; display: inline-block; width: 40px; }
+  
+  #loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 100; background: rgba(255,255,255,0.95); padding: 20px 30px;
+    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="map"></div>
+  <div id="panel">
+    <strong>♥ 북원노인종합복지관</strong><br>
+    후원업체 <span id="count">0</span>곳
+  </div>
+  <input type="text" id="search" placeholder="🔍 업체명·업종 검색">
+  <div id="loading">지도를 불러오는 중...</div>
+</div>
+
+<script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=YOUR_KAKAO_JS_KEY&autoload=false"></script>
+<script>
+const SHEET_CSV_URL = 'YOUR_SHEET_CSV_URL';
+const CENTER = { lat: 37.3422, lng: 127.9202 }; // 북원노인종합복지관 좌표로 교체
+
+let map, allMarkers = [], allData = [], openInfoWindow = null;
+
+kakao.maps.load(function() {
+  map = new kakao.maps.Map(document.getElementById('map'), {
+    center: new kakao.maps.LatLng(CENTER.lat, CENTER.lng),
+    level: 5
+  });
+  
+  // 줌 컨트롤
+  map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
+  
+  loadData();
+});
+
+async function loadData() {
+  try {
+    const res = await fetch(SHEET_CSV_URL);
+    const text = await res.text();
+    const rows = parseCSV(text);
+    
+    // 1행은 헤더 → 제거
+    const data = rows.slice(1).filter(r => r[1] && r[5] && r[6]); // 상호명, 위도, 경도 있는 것만
+    allData = data;
+    
+    renderMarkers(data);
+    document.getElementById('count').textContent = data.length;
+    document.getElementById('loading').style.display = 'none';
+  } catch (e) {
+    document.getElementById('loading').textContent = '데이터 로딩 실패: ' + e.message;
+  }
+}
+
+function renderMarkers(data) {
+  // 기존 마커 제거
+  allMarkers.forEach(m => m.setMap(null));
+  allMarkers = [];
+  
+  const bounds = new kakao.maps.LatLngBounds();
+  
+  data.forEach(row => {
+    const [no, name, category, addr, tel, lat, lng, memo] = row;
+    const pos = new kakao.maps.LatLng(parseFloat(lat), parseFloat(lng));
+    
+    const marker = new kakao.maps.Marker({ position: pos, map: map, title: name });
+    bounds.extend(pos);
+    
+    const html = `
+      <div class="info-window">
+        <div class="name">${escapeHtml(name)}</div>
+        ${category ? `<span class="category">${escapeHtml(category)}</span><br>` : ''}
+        <div class="row"><b>주소</b> ${escapeHtml(addr || '-')}</div>
+        <div class="row"><b>전화</b> ${tel ? `<a href="tel:${tel}">${escapeHtml(tel)}</a>` : '-'}</div>
+        ${memo ? `<div class="row"><b>비고</b> ${escapeHtml(memo)}</div>` : ''}
+      </div>
+    `;
+    
+    const infoWindow = new kakao.maps.InfoWindow({ content: html, removable: true });
+    
+    kakao.maps.event.addListener(marker, 'click', () => {
+      if (openInfoWindow) openInfoWindow.close();
+      infoWindow.open(map, marker);
+      openInfoWindow = infoWindow;
+    });
+    
+    allMarkers.push(marker);
+  });
+  
+  if (data.length > 0) map.setBounds(bounds);
+}
+
+// 검색 필터
+document.getElementById('search').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) {
+    renderMarkers(allData);
+    document.getElementById('count').textContent = allData.length;
+    return;
+  }
+  const filtered = allData.filter(r => 
+    (r[1] || '').toLowerCase().includes(q) || 
+    (r[2] || '').toLowerCase().includes(q)
+  );
+  renderMarkers(filtered);
+  document.getElementById('count').textContent = filtered.length;
+});
+
+// 간단 CSV 파서 (콤마 구분, 따옴표 처리)
+function parseCSV(text) {
+  const rows = [];
+  let row = [], cell = '', inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuote) {
+      if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
+      else if (c === '"') inQuote = false;
+      else cell += c;
+    } else {
+      if (c === '"') inQuote = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (c !== '\r') cell += c;
+    }
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+
+</body>
+</html>
