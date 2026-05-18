@@ -233,20 +233,17 @@ function renderList(data) {
     `;
   }).join('');
   
-  // 클릭 이벤트
   container.querySelectorAll('.list-item').forEach(el => {
     el.addEventListener('click', () => {
       const idx = parseInt(el.dataset.idx);
       openMarkerInfo(idx);
       
-      // 활성 표시
       container.querySelectorAll('.list-item').forEach(e => e.classList.remove('active'));
       el.classList.add('active');
     });
   });
 }
 
-// 명단 클릭 또는 마커 클릭 시 공통 처리
 function openMarkerInfo(idx) {
   if (openInfoWindow) openInfoWindow.close();
   
@@ -254,23 +251,19 @@ function openMarkerInfo(idx) {
   const infoWindow = allInfoWindows[idx];
   if (!marker || !infoWindow) return;
   
-  // 지도 중심 이동 + 줌
   map.setLevel(3);
   map.panTo(marker.getPosition());
   
-  // 정보창 열기 (약간 지연을 줘서 부드럽게)
   setTimeout(() => {
     infoWindow.open(map, marker);
     openInfoWindow = infoWindow;
   }, 200);
   
-  // 명단에서 해당 항목 활성화
   document.querySelectorAll('.list-item').forEach((el, i) => {
     el.classList.toggle('active', i === idx);
   });
 }
 
-// 검색 필터
 document.getElementById('search').addEventListener('input', e => {
   const q = e.target.value.trim().toLowerCase();
   let filtered;
