@@ -34,8 +34,9 @@
   }
   
   .info-window {
-    padding: 12px 14px; min-width: 260px; max-width: 340px;
+    padding: 12px 14px; width: 300px;
     font-size: 13px; line-height: 1.6; word-break: keep-all;
+    overflow: visible;
   }
   .info-window .name { font-weight: bold; font-size: 15px; color: #333; margin-bottom: 6px; }
   .info-window .category {
@@ -196,7 +197,7 @@ function renderMarkers(data) {
       </div>
     `;
     
-    const infoWindow = new kakao.maps.InfoWindow({ content: html, removable: true });
+    const infoWindow = new kakao.maps.InfoWindow({ content: html, removable: true, disableAutoPan: false });
     
     kakao.maps.event.addListener(marker, 'click', () => {
       openMarkerInfo(idx);
