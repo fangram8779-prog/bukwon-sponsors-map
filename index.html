@@ -15,7 +15,7 @@
   
   #map-section {
     position: relative;
-    width: 100%; height: 60%; min-height: 300px;
+    width: 100%; height: 55%; min-height: 300px;
   }
   #map { width: 100%; height: 100%; }
   
@@ -55,20 +55,34 @@
   
   /* 명단 영역 */
   #list-section {
-    width: 100%; height: 55%; min-height: 200px;
+    width: 100%; height: 45%; min-height: 200px;
     overflow-y: auto; background: #fafafa;
     border-top: 2px solid #e0e0e0;
   }
   #list-header {
-    padding: 12px 16px; background: #fff;
+    padding: 10px 16px; background: #fff;
     border-bottom: 1px solid #e0e0e0;
     font-weight: bold; font-size: 14px; color: #333;
     position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 10px;
   }
   #list-header .count-badge {
     display: inline-block; background: #d4a017; color: #fff;
     padding: 2px 10px; border-radius: 12px; font-size: 12px;
-    margin-left: 8px;
+  }
+  
+  /* 정렬 버튼 영역 */
+  .sort-area {
+    margin-left: auto; display: flex; gap: 4px;
+  }
+  .sort-btn {
+    padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px;
+    background: #fff; font-size: 11px; color: #555;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .sort-btn:hover { background: #f5f5f5; }
+  .sort-btn.active {
+    background: #d4a017; color: #fff; border-color: #d4a017;
   }
   
   .list-item {
@@ -79,12 +93,12 @@
   .list-item:hover { background: #fff4d6; }
   .list-item.active { background: #ffe9a8; }
   
-  .list-item .no {
+  .list-item .icon {
     width: 28px; height: 28px; flex-shrink: 0;
     background: #d4a017; color: #fff;
     border-radius: 50%; display: flex;
     align-items: center; justify-content: center;
-    font-size: 12px; font-weight: bold;
+    font-size: 14px;
   }
   .list-item .info { flex: 1; min-width: 0; }
   .list-item .info .name {
@@ -103,11 +117,11 @@
     padding: 30px; text-align: center; color: #999; font-size: 13px;
   }
   
-  /* 모바일 반응형 */
   @media (max-width: 600px) {
     #search { width: 160px; font-size: 12px; }
     #panel { font-size: 12px; padding: 8px 10px; }
     .list-item .info .meta { font-size: 11px; }
+    .sort-btn { font-size: 10px; padding: 3px 7px; }
   }
 </style>
 </head>
@@ -128,6 +142,11 @@
     <div id="list-header">
       후원업체 명단
       <span class="count-badge" id="list-count">0</span>
+      <div class="sort-area">
+        <button class="sort-btn active" data-sort="default">등록순</button>
+        <button class="sort-btn" data-sort="name">가나다순</button>
+        <button class="sort-btn" data-sort="category">업종별</button>
+      </div>
     </div>
     <div id="list-items"></div>
   </div>
@@ -138,7 +157,24 @@
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQASJWT9cqjzjFi7L7Q1gnv6dxYqYq6Z14RBGgJ3W1oWmfEB8QGOq_wTfOGyqR4DfulEvnJUKPXoJsm/pub?output=csv';
 const CENTER = { lat: 37.3422, lng: 127.9202 };
 
-let map, allMarkers = [], allInfoWindows = [], allData = [], openInfoWindow = null;
+// 업종별 아이콘 매핑
+const CATEGORY_ICONS = {
+  '음식점': '🍽', '카페': '☕', '마트': '🛒', '병원': '🏥',
+  '약국': '💊', '미용실': '✂', '세탁': '👔', '학원': '📚',
+  '은행': '🏦', '교회': '⛪', '사찰': '🛕', '기업': '🏢',
+  '공장': '🏭', '기관': '🏛'
+};
+
+function getCategoryIcon(cat) {
+  if (!cat) return '♥';
+  for (const [key, icon] of Object.entries(CATEGORY_ICONS)) {
+    if (cat.includes(key)) return icon;
+  }
+  return '♥';
+}
+
+let map, allMarkers = [], allInfoWindows = [], allData = [], displayData = [], openInfoWindow = null;
+let currentSort = 'default';
 
 kakao.maps.load(function() {
   map = new kakao.maps.Map(document.getElementById('map'), {
@@ -157,11 +193,11 @@ async function loadData() {
     
     const data = rows.slice(1).filter(r => r[1] && r[5] && r[6]);
     allData = data;
+    displayData = [...data];
     
-    renderMarkers(data);
-    renderList(data);
-    document.getElementById('count').textContent = data.length;
-    document.getElementById('list-count').textContent = data.length;
+    renderMarkers(displayData);
+    renderList(displayData);
+    updateCounts(displayData.length);
     document.getElementById('loading').style.display = 'none';
     
     if (data.length === 0) {
@@ -171,6 +207,30 @@ async function loadData() {
   } catch (e) {
     document.getElementById('loading').textContent = '데이터 로딩 실패: ' + e.message;
   }
+}
+
+function updateCounts(n) {
+  document.getElementById('count').textContent = n;
+  document.getElementById('list-count').textContent = n;
+}
+
+function sortData(data, sortType) {
+  const sorted = [...data];
+  switch(sortType) {
+    case 'name':
+      sorted.sort((a, b) => (a[1] || '').localeCompare(b[1] || '', 'ko'));
+      break;
+    case 'category':
+      sorted.sort((a, b) => {
+        const catCompare = (a[2] || '').localeCompare(b[2] || '', 'ko');
+        if (catCompare !== 0) return catCompare;
+        return (a[1] || '').localeCompare(b[1] || '', 'ko');
+      });
+      break;
+    default:
+      break;
+  }
+  return sorted;
 }
 
 function renderMarkers(data) {
@@ -207,7 +267,12 @@ function renderMarkers(data) {
     allInfoWindows.push(infoWindow);
   });
   
-  if (data.length > 0) map.setBounds(bounds);
+  if (data.length > 1) {
+    map.setBounds(bounds);
+  } else if (data.length === 1) {
+    map.setCenter(new kakao.maps.LatLng(parseFloat(data[0][5]), parseFloat(data[0][6])));
+    map.setLevel(4);
+  }
 }
 
 function renderList(data) {
@@ -220,9 +285,10 @@ function renderList(data) {
   
   container.innerHTML = data.map((row, idx) => {
     const [no, name, category, addr, tel] = row;
+    const icon = getCategoryIcon(category);
     return `
       <div class="list-item" data-idx="${idx}">
-        <div class="no">${escapeHtml(no || (idx + 1))}</div>
+        <div class="icon">${icon}</div>
         <div class="info">
           <div class="name">${escapeHtml(name)}</div>
           <div class="meta">
@@ -265,6 +331,7 @@ function openMarkerInfo(idx) {
   });
 }
 
+// 검색 필터
 document.getElementById('search').addEventListener('input', e => {
   const q = e.target.value.trim().toLowerCase();
   let filtered;
@@ -276,10 +343,35 @@ document.getElementById('search').addEventListener('input', e => {
       (r[2] || '').toLowerCase().includes(q)
     );
   }
-  renderMarkers(filtered);
-  renderList(filtered);
-  document.getElementById('count').textContent = filtered.length;
-  document.getElementById('list-count').textContent = filtered.length;
+  displayData = sortData(filtered, currentSort);
+  renderMarkers(displayData);
+  renderList(displayData);
+  updateCounts(displayData.length);
+});
+
+// 정렬 버튼
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentSort = btn.dataset.sort;
+    
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    let filtered;
+    if (!q) {
+      filtered = allData;
+    } else {
+      filtered = allData.filter(r => 
+        (r[1] || '').toLowerCase().includes(q) || 
+        (r[2] || '').toLowerCase().includes(q)
+      );
+    }
+    displayData = sortData(filtered, currentSort);
+    renderMarkers(displayData);
+    renderList(displayData);
+    updateCounts(displayData.length);
+  });
 });
 
 function parseCSV(text) {
