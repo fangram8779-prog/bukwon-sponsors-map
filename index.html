@@ -198,6 +198,7 @@ async function loadData() {
     renderMarkers(displayData);
     renderList(displayData);
     updateCounts(displayData.length);
+    window.parent.postMessage({ type: 'sponsorCount', count: data.length }, '*');
     document.getElementById('loading').style.display = 'none';
     
     if (data.length === 0) {
